@@ -5,6 +5,9 @@ class Player:
         self.ship_board = Board()
         self.attack_board = Board()
         self.ready = False
+        self.my_turn = False
+        self.finished_turn = False
+        self.request_reset = False
 
     def place_ship(self, x, y):
         if not self.ship_board.in_grid(x, y): return False
@@ -26,9 +29,17 @@ class Player:
             self.attack_board.grid[x][y] = Board.CORRECT_SHOT
             if self.attack_board.is_destoyed(x, y):
                 self.attack_board.surround_ship(x,y)
-            return True
+            return False
         self.attack_board.grid[x][y] = Board.FAILED_SHOT
         return True
+
+    def restart(self):
+        self.ship_board = Board()
+        self.attack_board = Board()
+        self.ready = False
+        self.my_turn = False
+        self.finished_turn = False
+        self.request_reset = False
 
 
 class Board:

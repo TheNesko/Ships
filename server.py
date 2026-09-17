@@ -21,6 +21,8 @@ print(f"{hostname} started server at {server_ip}:{server_port}")
 pool = []
 names = {}
 players = [Player(), Player()]
+turn = 0
+reseting = False
 
 def connect_client(client):
     pool.append(client)
@@ -35,6 +37,8 @@ def disconect_client(client):
 
 
 def clientThred(client, address, player):
+    global reseting
+    global turn
     connect_client(client)
     print(f"{address} joined the game")
     client.send(pickle.dumps(players[player]))
@@ -42,16 +46,37 @@ def clientThred(client, address, player):
     while True:
         try:
             data = pickle.loads(client.recv(2048))
-            players[player] = data
+            if players[0].request_reset and players[1].request_reset:
+                reseting = True
+            if reseting:
+                if not players[0].request_reset and not players[1].request_reset:
+                    reseting = False
+                players[0].restart()
+                players[1].restart()
+            else:
+                players[player] = data
+
+            if players[player].finished_turn:
+                turn += 1
+                players[player].my_turn = False
+                players[player].finished_turn = False
+
+            players[turn%2].my_turn = True
+
+
 
             if not data:
                 print("Disconnected")
                 break
             else:
                 if player == 1:
-                    reply = players[0]
+                    reply = {
+                    "p1" : players[1],
+                    "p2" : players[0]}
                 else:
-                    reply = players[1]
+                    reply = {
+                    "p1" : players[0],
+                    "p2" : players[1]}
 
                 # print(f"Received: {data}")
                 # print(f"Sending: {reply}")
