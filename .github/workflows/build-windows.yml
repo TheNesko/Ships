@@ -3,19 +3,16 @@ name: Build Client
 on:
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
   build-windows:
     runs-on: windows-latest
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.13"
 
@@ -28,15 +25,8 @@ jobs:
         run: |
           pyinstaller --onefile --windowed --clean --name Client client.py
 
-      - name: Copy executable
-        run: |
-          mkdir release
-          copy dist\Client.exe release\Client.exe
-
-      - name: Commit executable
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add release/Client.exe
-          git diff --cached --quiet || git commit -m "Build Windows Client"
-          git push
+      - name: Upload Windows executable
+        uses: actions/upload-artifact@v5
+        with:
+          name: Client-Windows
+          path: dist/Client.exe
