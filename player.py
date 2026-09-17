@@ -24,13 +24,10 @@ class Player:
         if self.attack_board.grid[x][y] in [Board.CORRECT_SHOT, Board.FAILED_SHOT]: return False
         if self.attack_board.grid[x][y] == Board.SHIP_ID:
             self.attack_board.grid[x][y] = Board.CORRECT_SHOT
-            print("Correct")
             if self.attack_board.is_destoyed(x, y):
                 self.attack_board.surround_ship(x,y)
-                print("Destroyed")
             return True
         self.attack_board.grid[x][y] = Board.FAILED_SHOT
-        print("MISS!")
         return True
 
 
@@ -129,7 +126,7 @@ class Board:
     def _draw_ship(self, screen, x, y):
         pygame.draw.rect(
             screen,
-            (255,0,255),
+            (74, 56, 57),
             pygame.Rect(
                 x,
                 y,
@@ -154,30 +151,32 @@ class Board:
             x_pos = x * Board.CELL_SIZE
             lines_y = x_pos + pos[1]
             x_pos += pos[0]
-            pygame.draw.line(screen, (0,0,0), (x_pos, pos[1]), (x_pos, pos[1]+Board.CELL_SIZE*Board.SIZE))
-            pygame.draw.line(screen, (0,0,0), (pos[0], lines_y), (pos[0]+Board.CELL_SIZE*Board.SIZE, lines_y))
+            pygame.draw.line(screen, (0,0,0), (x_pos, pos[1]), (x_pos, pos[1]+Board.CELL_SIZE*Board.SIZE),3)
+            pygame.draw.line(screen, (0,0,0), (pos[0], lines_y), (pos[0]+Board.CELL_SIZE*Board.SIZE, lines_y),3)
         last_y = Board.SIZE * Board.CELL_SIZE + pos[1]
         last_x = Board.SIZE * Board.CELL_SIZE + pos[0]
-        pygame.draw.line(screen, (0,0,0), (last_x, pos[1]), (last_x, pos[1]+Board.CELL_SIZE*Board.SIZE))
-        pygame.draw.line(screen, (0,0,0), (pos[0], last_y), (pos[0]+Board.CELL_SIZE*Board.SIZE, last_y))
+        pygame.draw.line(screen, (0,0,0), (last_x, pos[1]), (last_x, pos[1]+Board.CELL_SIZE*Board.SIZE),3)
+        pygame.draw.line(screen, (0,0,0), (pos[0], last_y), (pos[0]+Board.CELL_SIZE*Board.SIZE, last_y),3)
 
         #Draw numbers/letters
         for x in range(Board.SIZE):
+            # NUMBERS
             x_pos = x * Board.CELL_SIZE
             x_pos += pos[0]
             number = Board.NUMERIC[x]
             number_size = font.size(number)
             number_offset_x = Board.CELL_SIZE/2-number_size[0]/2
-            number_text = font.render(number,0,(0,0,0))
+            number_text = font.render(number,0,(255,255,255))
             screen.blit(number_text,(x_pos+number_offset_x, pos[1]-number_size[1]))
-
+            # LETTERS
             y_pos = x * Board.CELL_SIZE
             y_pos += pos[1]
             letter = Board.ALPHABET[x]
             letter_size = font.size(letter)
+            letter_offset_x = Board.CELL_SIZE/2+letter_size[0]/2
             letter_offset_y = Board.CELL_SIZE/2-letter_size[1]/2
-            letter_text = font.render(letter,0,(0,0,0))
-            screen.blit(letter_text,(pos[0]-letter_size[0], y_pos+letter_offset_y))
+            letter_text = font.render(letter,0,(255,255,255))
+            screen.blit(letter_text,(pos[0]-letter_offset_x, y_pos+letter_offset_y))
 
         # Draw ships and shots
         for x in range(Board.SIZE):

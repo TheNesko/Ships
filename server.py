@@ -44,7 +44,6 @@ def clientThred(client, address, player):
             data = pickle.loads(client.recv(2048))
             players[player] = data
 
-
             if not data:
                 print("Disconnected")
                 break
