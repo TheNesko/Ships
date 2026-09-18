@@ -3,6 +3,10 @@ from network import Network
 from player import *
 import pyperclip
 from enum import Enum
+from server import GameServer
+from _thread import *
+import time
+
 
 WIDTH = 1200
 HEIGHT = 700
@@ -245,7 +249,8 @@ class Button:
 
 class Game:
     def __init__(self) -> None:
-        self.server = None
+        self.server = GameServer()
+        self.server_thread = None
         self.n = Network()
         self.p = Player()
         self.p2 = Player()
@@ -278,12 +283,14 @@ class Game:
 
             # display count of enemy ships only in battle
             width, height = draw_text(self.screen, font, "Enemy ships", [WIDTH-x_offset, 25], (255,255,255), alignment=Align.TOP_RIGHT)
-            enemy_ships = f"{self.p2.ship_board.destroyed}/{self.p2.ship_board.ship_amount}"
-            draw_text(self.screen, font, enemy_ships, [WIDTH-x_offset-width/2, 25+height], (255,255,255), alignment=Align.TOP)
+            enemy_ships_left = self.p2.ship_board.ship_amount - self.p2.ship_board.destroyed
+            enemy_ships_text = f"{self.p2.ship_board.ship_amount}/{enemy_ships_left}"
+            draw_text(self.screen, font, enemy_ships_text, [WIDTH-x_offset-width/2, 25+height], (255,255,255), alignment=Align.TOP)
 
         # display count of your ships
         width, height = draw_text(self.screen, font, "Your ships", [x_offset, 25], (255,255,255), alignment=Align.TOP_LEFT)
-        your_ships = f"{self.p.ship_board.destroyed}/{self.p.ship_board.ship_amount}"
+        your_ships_left = self.p.ship_board.ship_amount - self.p.ship_board.destroyed
+        your_ships = f"{self.p.ship_board.ship_amount}/{your_ships_left}"
         draw_text(self.screen, font, your_ships, [x_offset+width/2, 25+height], (255,255,255), alignment=Align.TOP)
 
         text_size = font.size(text)
@@ -302,6 +309,11 @@ class Game:
                 draw_text(self.screen, font, "YOU LOST", [WIDTH/2, HEIGHT/2], (255,0,0))
             elif self.p2.ship_board.ship_amount == self.p2.ship_board.destroyed:
                 draw_text(self.screen, font, "YOU WON", [WIDTH/2, HEIGHT/2], (0,255,0))
+
+        if self.n.connected == False:
+            font_list = pygame.font.get_fonts()
+            new_font = pygame.font.SysFont(font_list[1],size=32, bold=True)
+            draw_text(self.screen, new_font, "Not connected", [0, 0], (255,0,0), Align.TOP_LEFT)
 
         pygame.display.flip()
 
@@ -357,8 +369,25 @@ class Game:
                     print(e)
 
             if host_button.pressed():
-                host_button.text = "HELL NO XD"
-                host_button.auto_resize = True
+                host_button.text = "Wait..."
+                user_input = ip_input.value.split(":")
+                if len(user_input) == 2:
+                    print("Hosting")
+                    self.server_thread = start_new_thread(self.server.start_server, (user_input[0], int(user_input[1])))
+                    while not self.server.started:
+                        time.sleep(0.2)
+                    host_button.text = "Joining..."
+                    host_button.auto_resize = True
+                    self.n.set_address(self.server.server_ip, self.server.server_port)
+                    returned = self.n.connect()
+                    print(f"Returned {returned}")
+                    if returned:
+                        self.p = returned
+                        return True
+                    else:
+                        self.server.stop_server()
+                else:
+                    host_button.text = "Host"
 
             self.screen.fill((30,30,30))
 
@@ -379,6 +408,7 @@ class Game:
         while not done:
             if self.n.connected:
                 server_data = self.n.send(self.p)
+                if not server_data: continue
                 self.p = server_data["p1"]
                 self.p2 = server_data["p2"]
                 self.p.ship_board = Board.merge(self.p2.attack_board, self.p.ship_board)
@@ -418,6 +448,8 @@ class Game:
 if __name__ == "__main__":
     game = Game()
     while game.running:
+        if game.server.started:
+            game.server.stop_server()
         if game.main_menu():
             game.main()
     pygame.quit()
