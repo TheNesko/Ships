@@ -360,6 +360,7 @@ class Game:
                     if len(user_input) == 2:
                         print(f"connecting to {user_input}")
                         self.n.set_address(user_input[0], int(user_input[1]))
+                        time.sleep(0.3)
                         returned = self.n.connect()
                         print(f"Returned {returned}")
                         if returned:
@@ -374,8 +375,15 @@ class Game:
                 if len(user_input) == 2:
                     print("Hosting")
                     self.server_thread = start_new_thread(self.server.start_server, (user_input[0], int(user_input[1])))
+                    timeout = 0.0
                     while not self.server.started:
-                        time.sleep(0.2)
+                        time.sleep(0.3)
+                        timeout += 1
+                        print(f" server started {self.server.started}")
+                        if timeout >= 10:
+                            print("Failed to connect")
+                            break
+                    if timeout >= 10: continue
                     host_button.text = "Joining..."
                     host_button.auto_resize = True
                     self.n.set_address(self.server.server_ip, self.server.server_port)
@@ -386,8 +394,7 @@ class Game:
                         return True
                     else:
                         self.server.stop_server()
-                else:
-                    host_button.text = "Host"
+                host_button.text = "Host"
 
             self.screen.fill((30,30,30))
 

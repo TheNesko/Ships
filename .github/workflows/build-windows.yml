@@ -1,4 +1,4 @@
-name: Build Client
+name: Build Windows Client
 
 on:
   workflow_dispatch:
@@ -23,10 +23,20 @@ jobs:
 
       - name: Build Windows executable
         run: |
-          pyinstaller --onefile --windowed --clean --name Client client.py
+          pyinstaller --onefile --windowed --hidden-import=pyperclip --clean --name Client client.py
 
       - name: Upload Windows executable
         uses: actions/upload-artifact@v5
         with:
           name: Client-Windows
           path: dist/Client.exe
+
+      - name: Build Console windows executable
+        run: |
+          pyinstaller --onefile --hidden-import=pyperclip --clean --name Client_debug client.py
+
+      - name: Upload Console executable
+        uses: actions/upload-artifact@v5
+        with:
+          name: Client-Windows
+          path: dist/Client_debug.exe

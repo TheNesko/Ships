@@ -26,7 +26,7 @@ class Network:
             self.client.connect(self.address)
             returned = pickle.loads(self.client.recv(2048))
             if returned == None: return None
-            self.client.settimeout(None)
+            # self.client.settimeout(None)
             self.connected = True
             return returned
         except:
