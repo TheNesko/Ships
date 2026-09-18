@@ -7,15 +7,28 @@ class Network:
         self.server = "10.59.61.151"
         self.port = 5555
         self.address = (self.server, self.port)
-        self.p = self.connect()
+        self.client.settimeout(2.0)
+        self.connected = False
 
-    def get_p(self):
-        return self.p
+    def disconnect(self):
+        if not self.connected: return
+        self.client.close()
+        self.__init__()
+
+    def set_address(self, ip, port):
+        self.server = ip
+        self.port = port
+        self.address = (ip, port)
 
     def connect(self):
         try:
+            print(f"Attempting connection to {self.address}")
             self.client.connect(self.address)
-            return pickle.loads(self.client.recv(2048))
+            returned = pickle.loads(self.client.recv(2048))
+            if returned == None: return None
+            self.client.settimeout(None)
+            self.connected = True
+            return returned
         except:
             pass
 

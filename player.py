@@ -22,15 +22,16 @@ class Player:
         self.ship_board.grid[x][y] = Board.EMPTY
         return True
 
-    def take_a_shot(self, x, y):
-        if not self.attack_board.in_grid(x, y): return False
-        if self.attack_board.grid[x][y] in [Board.CORRECT_SHOT, Board.FAILED_SHOT]: return False
-        if self.attack_board.grid[x][y] == Board.SHIP_ID:
-            self.attack_board.grid[x][y] = Board.CORRECT_SHOT
-            if self.attack_board.is_destoyed(x, y):
-                self.attack_board.surround_ship(x,y)
+    def take_a_shot(self, x, y, debug=False):
+        target_board = self.ship_board if debug else self.attack_board
+        if not target_board.in_grid(x, y): return False
+        if target_board.grid[x][y] in [Board.CORRECT_SHOT, Board.FAILED_SHOT]: return False
+        if target_board.grid[x][y] == Board.SHIP_ID:
+            target_board.grid[x][y] = Board.CORRECT_SHOT
+            if target_board.is_destoyed(x, y):
+                target_board.surround_ship(x,y)
             return False
-        self.attack_board.grid[x][y] = Board.FAILED_SHOT
+        target_board.grid[x][y] = Board.FAILED_SHOT
         return True
 
     def restart(self):
@@ -55,6 +56,8 @@ class Board:
     NUMERIC = ["1","2","3","4","5","6","7","8","9","10"]
     ALPHABET = ["A","B","C","D","E","F","G","H","I","J"]
 
+    SHIP_MARGIN = 5
+
 
     def __init__(self) -> None:
         self.grid = []
@@ -62,6 +65,8 @@ class Board:
             self.grid.append([])
             for y in range(Board.SIZE):
                 self.grid[x].append(0)
+        self.ship_amount = 0
+        self.destroyed = 0
 
     @staticmethod
     def to_grid(x,y):
@@ -75,6 +80,19 @@ class Board:
                 if attack in [Board.FAILED_SHOT, Board.CORRECT_SHOT]:
                     ship_board.grid[x][y] = attack
         return ship_board
+
+    def get_ships(self):
+        checked = []
+        ships = []
+        for x in range(Board.SIZE):
+            for y in range(Board.SIZE):
+                if (x,y) in checked: continue
+                if self.grid[x][y] in [Board.SHIP_ID, Board.CORRECT_SHOT]:
+                    ship = self.get_ship_points(x,y)
+                    checked.extend(ship)
+                    ships.append(ship)
+        self.ship_amount = len(ships)
+        return ships
 
     def in_grid(self, x,y):
         if x < 0 or x > Board.SIZE-1: return False
@@ -133,19 +151,41 @@ class Board:
             to_check.remove(ship)
         return points
 
+    def get_ship_rect(self, board_pos, ship_points):
+        lowest_x, highest_x = float("inf"), float("-inf")
+        lowest_y, highest_y = float("inf"), float("-inf")
+        for point in ship_points:
+            highest_x = max(highest_x, point[0])
+            highest_y = max(highest_y, point[1])
+            lowest_x = min(lowest_x, point[0])
+            lowest_y = min(lowest_y, point[1])
+        width = (1 + highest_x - lowest_x) * Board.CELL_SIZE
+        height = (1 + highest_y - lowest_y) * Board.CELL_SIZE
+        rect = pygame.Rect(
+            lowest_x * Board.CELL_SIZE + board_pos[0] + Board.SHIP_MARGIN,
+            lowest_y * Board.CELL_SIZE + board_pos[1] + Board.SHIP_MARGIN,
+            width - Board.SHIP_MARGIN*2,
+            height - Board.SHIP_MARGIN*2
+        )
+        return rect
 
-    def _draw_ship(self, screen, x, y):
+    def _draw_ship(self, screen, board_pos ,ship_points, color=(74, 56, 57)):
+        rect = self.get_ship_rect(board_pos, ship_points)
         pygame.draw.rect(
             screen,
-            (74, 56, 57),
-            pygame.Rect(
-                x,
-                y,
-                Board.CELL_SIZE,
-                Board.CELL_SIZE
-            )
+            color,
+            rect
         )
 
+    def draw_X(self, screen, board_pos, x, y, size):
+        x = x * Board.CELL_SIZE + board_pos[0] + Board.CELL_SIZE/2
+        y = y * Board.CELL_SIZE + board_pos[1] + Board.CELL_SIZE/2
+        top_left = (x-size/2, y-size/2)
+        bottom_right = (x+size/2, y+size/2)
+        pygame.draw.line(screen, (255,0,0), top_left, bottom_right,5)
+        top_right = (x+size/2, y-size/2)
+        bottom_left = (x-size/2, y+size/2)
+        pygame.draw.line(screen, (255,0,0), top_right, bottom_left,5)
 
     def draw(self, screen, pos, font, color=(0,0,255), fog=False):
         pygame.draw.rect(
@@ -189,29 +229,43 @@ class Board:
             letter_text = font.render(letter,0,(255,255,255))
             screen.blit(letter_text,(pos[0]-letter_offset_x, y_pos+letter_offset_y))
 
-        # Draw ships and shots
+        # Draw shots
         for x in range(Board.SIZE):
-            x_pos = x * Board.CELL_SIZE
-            x_pos += pos[0]
+            x_pos = x * Board.CELL_SIZE + pos[0]
             for y in range(Board.SIZE):
-                y_pos = y * Board.CELL_SIZE
-                y_pos += pos[1]
-                if self.grid[x][y] == Board.CORRECT_SHOT:
-                    self._draw_ship(screen, x_pos, y_pos)
-                    top_left = (x_pos, y_pos)
-                    bottom_right = (x_pos+Board.CELL_SIZE, y_pos+Board.CELL_SIZE)
-                    pygame.draw.line(screen, (255,0,0), top_left, bottom_right,5)
-                    top_right = (x_pos+Board.CELL_SIZE, y_pos)
-                    bottom_left = (x_pos, y_pos+Board.CELL_SIZE)
-                    pygame.draw.line(screen, (255,0,0), top_right, bottom_left,5)
-                elif self.grid[x][y] == Board.SHIP_ID:
-                    if fog: continue
-                    self._draw_ship(screen, x_pos, y_pos)
-                elif self.grid[x][y] == Board.FAILED_SHOT:
-                    radius = Board.CELL_SIZE/3
+                y_pos = y * Board.CELL_SIZE + pos[1]
+                if self.grid[x][y] == Board.FAILED_SHOT:
+                    radius = Board.CELL_SIZE/10
                     pygame.draw.circle(
                         screen,
                         (255,255,255),
                         (x_pos+Board.CELL_SIZE/2, y_pos+Board.CELL_SIZE/2),
                         radius
                     )
+
+        # draw ships
+        ships = self.get_ships()
+        ships_destroyed = 0
+        for ship in ships:
+            if fog:
+                #draw destroyes ships
+                destroyed = True
+                for point in ship:
+                    if self.grid[point[0]][point[1]] == Board.SHIP_ID:
+                        destroyed = False
+                        break # has not destroyed part so we skip it
+                if destroyed:
+                    self._draw_ship(screen, pos, ship)
+            else:
+                #draw every ship
+                self._draw_ship(screen, pos, ship)
+
+            length = len(ship)
+            shot_parts = 0
+            for point in ship:
+                if self.grid[point[0]][point[1]] == Board.CORRECT_SHOT:
+                    shot_parts += 1
+                    self.draw_X(screen, pos, point[0], point[1], Board.CELL_SIZE/2)
+            if length == shot_parts:
+                ships_destroyed += 1
+        self.destroyed = ships_destroyed

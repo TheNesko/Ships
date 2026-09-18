@@ -10,19 +10,22 @@ server_port = 5555
 
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-try:
-    server_socket.bind((server_ip,server_port))
-except socket.error as e:
-    print(e)
-server_socket.listen(2)
-
-print(f"{hostname} started server at {server_ip}:{server_port}")
-
 pool = []
 names = {}
 players = [Player(), Player()]
 turn = 0
 reseting = False
+
+def host(address, port):
+    try:
+        server_socket.bind((address,port))
+    except socket.error as e:
+        print(e)
+        return False
+    server_socket.listen(2)
+
+    print(f"{hostname} started server at {address}:{port}")
+    return True
 
 def connect_client(client):
     pool.append(client)
@@ -51,8 +54,12 @@ def clientThred(client, address, player):
             if reseting:
                 if not players[0].request_reset and not players[1].request_reset:
                     reseting = False
-                players[0].restart()
-                players[1].restart()
+                else:
+                    reply = {
+                    "p1" : Player(),
+                    "p2" : Player()}
+                    client.sendall(pickle.dumps(reply))
+                    continue
             else:
                 players[player] = data
 
@@ -86,22 +93,27 @@ def clientThred(client, address, player):
             break
     disconect_client(client)
 
-current_player = 0
-running = True
-while running:
-    client, address = server_socket.accept()
-    print(f"connected to {address}")
+def start_server(address=server_ip, port=server_port):
+    if host(address, port) == False: return
+    current_player = 0
+    running = True
+    while running:
+        client, address = server_socket.accept()
+        print(f"connected to {address}")
 
-    start_new_thread(clientThred, (client, address, current_player))
-    current_player += 1
-    if current_player >= 2:
-        break
+        start_new_thread(clientThred, (client, address, current_player))
+        current_player += 1
+        if current_player >= 2:
+            break
 
-print("---------------------")
-print("All players connected")
-print("---------------------")
-while running:
-    if len(pool) <= 0:
-        running = False
-server_socket.close()
-print("Server closed")
+    print("---------------------")
+    print("All players connected")
+    print("---------------------")
+    while running:
+        if len(pool) <= 0:
+            running = False
+    server_socket.close()
+    print("Server closed")
+
+if __name__ == "__main__":
+    start_server()
