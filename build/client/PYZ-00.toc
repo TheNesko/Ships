@@ -1418,6 +1418,7 @@
   ('setuptools.windows_support',
    '/home/hexed/pytorch-env/lib/python3.14/site-packages/setuptools/windows_support.py',
    'PYMODULE'),
+  ('shared', '/home/hexed/Development/Ships/shared.py', 'PYMODULE'),
   ('shlex', '/usr/lib/python3.14/shlex.py', 'PYMODULE'),
   ('shutil', '/usr/lib/python3.14/shutil.py', 'PYMODULE'),
   ('signal', '/usr/lib/python3.14/signal.py', 'PYMODULE'),

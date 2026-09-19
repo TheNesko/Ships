@@ -1,9 +1,13 @@
+from random import randint
 import socket
 from _thread import *
 
 from player import Player
 import pickle
 import time
+import struct
+
+from shared import Action
 
 class GameServer:
     def __init__(self, server_ip = "10.59.61.151", server_port = 5555) -> None:
@@ -21,14 +25,15 @@ class GameServer:
         self.pool = []
         self.names = {}
         self.players = [Player(), Player()]
-        self.turn = 0
-        self.reseting = False
+        self.ready_players = 0
+        self.match_started = False
+        self.reset_requests = 0
 
     def host(self, address, port):
         try:
             self.server_socket.bind((address,port))
         except socket.error as e:
-            print(e)
+            print(f"host error: {e}")
             return False
         self.server_socket.listen(2)
 
@@ -41,6 +46,7 @@ class GameServer:
         print(f"{self.names[client]} connected")
 
     def disconect_client(self, client, player):
+        if client not in self.pool: return
         self.pool.remove(client)
         client_name = self.names.pop(client)
         print(f"{client_name} disconnected")
@@ -51,62 +57,145 @@ class GameServer:
         self.shutdown_request = True
         self.started = False
 
+    def send_data(self, client, data):
+        payload = pickle.dumps(data)
 
-    def client_thred(self, client, address, player):
-        self.connect_client(client)
+        header = struct.pack("!I", len(payload))
+        client.sendall(header)
+        client.sendall(payload)
+
+    def send_to_others(self, client, data):
+        payload = pickle.dumps(data)
+
+        header = struct.pack("!I", len(payload))
+        for other in self.pool:
+            if other == client: continue
+            other.sendall(header)
+            other.sendall(payload)
+
+    def recv_exact(self, client, size):
+        data = b""
+
+        while len(data) < size:
+            chunk = client.recv(size - len(data))
+            if not chunk:
+                raise ConnectionError("Connection closed")
+
+            data += chunk
+
+        return data
+
+
+    def recv_data(self, client):
+        # Read message length
+        header = self.recv_exact(client, 4)
+        size = struct.unpack("!I", header)[0]
+        # Read complete pickle
+        payload = self.recv_exact(client, size)
+        # IMPORTANT: convert bytes -> Python object
+        obj = pickle.loads(payload)
+
+        return obj
+
+
+    def client_thred(self, client, address, player_id):
         print(f"{address} joined the game")
-        client.send(pickle.dumps(self.players[player]))
-        reply = ""
+        self.connect_client(client)
+        # client.send(pickle.dumps(self.players[player]))
+        # self.send_data(client, self.players[player])
         while not self.shutdown_request:
             try:
-                raw = client.recv(4096)
+                # raw = client.recv(4096)
 
-                if not raw:
-                    print(f"{self.names[client]} disconnected")
+                # if not raw:
+                #     print(f"{self.names[client]} disconnected")
+                #     break
+
+                # data = pickle.loads(raw)
+                player = self.players[player_id]
+                data = self.recv_data(client)
+
+                if data == "":
                     break
 
-                data = pickle.loads(raw)
+                action = data["action"]
 
-                if self.players[0].request_reset and self.players[1].request_reset:
-                    self.reseting = True
-                if self.reseting:
-                    if not self.players[0].request_reset and not self.players[1].request_reset:
-                        self.reseting = False
-                    else:
-                        reply = {
-                        "p1" : Player(),
-                        "p2" : Player()}
-                        client.sendall(pickle.dumps(reply))
-                        continue
-                else:
-                    self.players[player] = data
+                reply = {"client_id": player_id, "action": action}
+                match action:
+                    case Action.JOINED:
+                        reply["attack_board"] = self.players[0 if player_id == 1 else 1].ship_board
+                        _reply = reply.copy()
+                        _reply["attack_board"] = player.ship_board
+                        self.send_to_others(client, _reply)
+                    case Action.PLACE:
+                        x = data["x"]
+                        y = data["y"]
+                        result = player.ship_board.place_ship(x, y)
+                        reply["result"] = result
+                        if result == None: continue
+                        reply["x"] = x
+                        reply["y"] = y
+                        if result:
+                            self.send_to_others(client, reply)
+                    case Action.REMOVE:
+                        x = data["x"]
+                        y = data["y"]
+                        result = player.ship_board.remove_ship(x, y)
+                        reply["result"] = result
+                        if result == None: continue
+                        reply["x"] = x
+                        reply["y"] = y
+                        if result:
+                            self.send_to_others(client, reply)
+                    case Action.ATTACK:
+                        x = data["x"]
+                        y = data["y"]
+                        result = self.players[0 if player == 1 else 1].ship_board.attack(x, y)
+                        reply["result"] = result
+                        if result == None: continue
+                        reply["x"] = x
+                        reply["y"] = y
+                        reply["my_turn"] = player_id if result == True else (player_id+1)%2
+                        self.send_to_others(client, reply)
+                    case Action.READY:
+                        player.ready = not player.ready if self.ready_players != 2 else True
+                        self.ready_players = 1 if self.players[0].ready or self.players[1].ready else 0
+                        self.ready_players = 2 if self.players[0].ready and self.players[1].ready else self.ready_players
+                        if self.ready_players == 2:
+                            self.match_started = True
+                        reply["ready_player"] = self.ready_players
+                        reply["match_started"] = self.match_started
+                        reply["my_turn"] = randint(0,1)
+                        self.send_to_others(client, reply)
+                        reply["result"] = player.ready
+                    case Action.RESET:
+                        player.reset_request = not player.reset_request
+                        self.reset_requests = 0
+                        for p in self.players:
+                            self.reset_requests += 1 if p.reset_request else 0
+                        reply["result"] = player.reset_request
+                        reply["reset_requests"] = self.reset_requests
+                        reply["reset"] = self.reset_requests == 2
+                        self.send_to_others(client, reply)
+                        if self.reset_requests == 2:
+                            self.reset_board()
+                    case Action.EXITED:
+                        self.disconect_client(client, player_id)
 
-                if self.players[player].finished_turn:
-                    self.turn += 1
-                    self.players[player].my_turn = False
-                    self.players[player].finished_turn = False
+                self.send_data(client, reply)
 
-                self.players[self.turn%2].my_turn = True
-
-                if player == 1:
-                    reply = {
-                    "p1" : self.players[1],
-                    "p2" : self.players[0]}
-                else:
-                    reply = {
-                    "p1" : self.players[0],
-                    "p2" : self.players[1]}
-
-                    # print(f"Received: {data}")
-                    # print(f"Sending: {reply}")
-
-                client.sendall(pickle.dumps(reply))
             except TimeoutError:
                 continue
             except Exception as e:
-                print(e)
+                print(f"Error: {e}")
                 break
-        self.disconect_client(client, player)
+        self.disconect_client(client, player_id)
+
+    def reset_board(self):
+        self.players = [Player(), Player()]
+        self.ready_players = 0
+        self.match_started = False
+        self.reset_requests = 0
 
     def start_server(self, address="", port=-1):
         self.started = False
@@ -129,18 +218,18 @@ class GameServer:
                 start_new_thread(self.client_thred, (client, address, current_player))
                 current_player += 1
                 if current_player >= 2:
+                    print("---------------------")
+                    print("All players connected")
+                    print("---------------------")
                     break
             except TimeoutError:
                 continue
 
         time.sleep(0.1)
-        print("---------------------")
-        print("All players connected")
-        print("---------------------")
         while self.pool:
             time.sleep(0.1)
-        self.server_socket.close()
         print("Server closed")
+        self.server_socket.close()
         self.shutdown_request = False
         self.started = False
 

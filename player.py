@@ -6,42 +6,7 @@ class Player:
         self.attack_board = Board()
         self.ready = False
         self.my_turn = False
-        self.finished_turn = False
-        self.request_reset = False
-
-    def place_ship(self, x, y):
-        if not self.ship_board.in_grid(x, y): return False
-        if not self.ship_board.can_place(x, y): return False
-        if self.ship_board.grid[x][y] == Board.SHIP_ID: return False
-        self.ship_board.grid[x][y] = Board.SHIP_ID
-        return True
-
-    def remove_ship(self, x, y):
-        if not self.ship_board.in_grid(x, y): return False
-        if self.ship_board.grid[x][y] != Board.SHIP_ID: return False
-        self.ship_board.grid[x][y] = Board.EMPTY
-        return True
-
-    def take_a_shot(self, x, y, debug=False):
-        target_board = self.ship_board if debug else self.attack_board
-        if not target_board.in_grid(x, y): return False
-        if target_board.grid[x][y] in [Board.CORRECT_SHOT, Board.FAILED_SHOT]: return False
-        if target_board.grid[x][y] == Board.SHIP_ID:
-            target_board.grid[x][y] = Board.CORRECT_SHOT
-            if target_board.is_destoyed(x, y):
-                target_board.surround_ship(x,y)
-            return False
-        target_board.grid[x][y] = Board.FAILED_SHOT
-        return True
-
-    def restart(self):
-        self.ship_board = Board()
-        self.attack_board = Board()
-        self.ready = False
-        self.my_turn = False
-        self.finished_turn = False
-        self.request_reset = False
-
+        self.reset_request = False
 
 class Board:
 
@@ -80,6 +45,30 @@ class Board:
                 if attack in [Board.FAILED_SHOT, Board.CORRECT_SHOT]:
                     ship_board.grid[x][y] = attack
         return ship_board
+
+    def place_ship(self, x, y):
+        if not self.in_grid(x, y): return None
+        if not self.can_place(x, y): return None
+        if self.grid[x][y] == Board.SHIP_ID: return False
+        self.grid[x][y] = Board.SHIP_ID
+        return True
+
+    def remove_ship(self, x, y):
+        if not self.in_grid(x, y): return None
+        if self.grid[x][y] != Board.SHIP_ID: return None
+        self.grid[x][y] = Board.EMPTY
+        return True
+
+    def attack(self, x, y):
+        if not self.in_grid(x, y): return None
+        if self.grid[x][y] in [Board.CORRECT_SHOT, Board.FAILED_SHOT]: return None
+        if self.grid[x][y] == Board.SHIP_ID:
+            self.grid[x][y] = Board.CORRECT_SHOT
+            if self.is_destoyed(x, y):
+                self.surround_ship(x,y)
+            return True
+        self.grid[x][y] = Board.FAILED_SHOT
+        return False
 
     def get_ships(self):
         checked = []

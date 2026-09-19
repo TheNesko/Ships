@@ -7,6 +7,10 @@ from server import GameServer
 from _thread import *
 import time
 
+from shared import Action
+
+
+FPS_LIMIT = 60
 
 WIDTH = 1200
 HEIGHT = 700
@@ -252,19 +256,95 @@ class Game:
         self.server = GameServer()
         self.server_thread = None
         self.n = Network()
+        self.reply_thread = None
         self.p = Player()
-        self.p2 = Player()
+        self.players_ready = 0
+        self.reset_requests = 0
+        self.match_started = False
         pygame.init()
         self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
         self.clock = pygame.time.Clock()
         self.running = True
-
-        # ONLY USED FOR TESTING
-        self.debug = False
+        self.done = False
 
     def restart(self):
         self.p = Player()
-        self.p2 = Player()
+        self.players_ready = 0
+        self.reset_requests = 0
+        self.match_started = False
+
+    def manage_replies(self):
+        while not self.done:
+            try:
+                reply = self.n.recv_data()
+                print(reply)
+                action = reply["action"]
+                id = reply["client_id"]
+                match action:
+                    case Action.EXITED:
+                        if self.n.id == id:
+                            pass
+                        else:
+                            print("Player has left!")
+                    case Action.JOINED:
+                        self.p.attack_board = reply["attack_board"]
+                        if self.n.id == id:
+                            pass
+                        else:
+                            print("New player joined!")
+                    case Action.ATTACK:
+                        self.p.my_turn = reply["my_turn"] == self.n.id
+                        result = reply["result"]
+                        x = reply["x"]
+                        y = reply["y"]
+                        if self.n.id == id:
+                            self.p.attack_board.attack(x,y)
+                        else:
+                            self.p.ship_board.attack(x,y)
+                            print(f"Other player attacked your {x}{y}")
+                    case Action.PLACE:
+                        result = reply["result"]
+                        x = reply["x"]
+                        y = reply["y"]
+                        if result == False: continue
+                        if self.n.id == id:
+                            self.p.ship_board.place_ship(x,y)
+                        else:
+                            self.p.attack_board.place_ship(x,y)
+                            print(f"Other player placed a ship at {x}{y}")
+                    case Action.REMOVE:
+                        result = reply["result"]
+                        x = reply["x"]
+                        y = reply["y"]
+                        if result == False: continue
+                        if self.n.id == id:
+                            self.p.ship_board.remove_ship(x,y)
+                        else:
+                            self.p.attack_board.remove_ship(x,y)
+                            print(f"Other player removed ship from {x}{y}")
+                    case Action.RESET:
+                        self.reset_requests = reply["reset_requests"]
+                        if self.n.id == id:
+                            self.p.reset_request = reply["result"]
+                        else:
+                            pass
+                        if reply["reset"]:
+                            self.restart()
+                    case Action.READY:
+                        self.players_ready = reply["ready_player"]
+                        self.match_started = reply["match_started"]
+                        self.p.my_turn = reply["my_turn"] == self.n.id
+                        if self.n.id == id:
+                            self.p.ready = reply["result"]
+                        else:
+                            pass
+            except TimeoutError:
+                # print("No replies")
+                pass
+            except ConnectionError:
+                print("Lost connection")
+                break
+        print("Reply thread closed")
 
     def redraw_screen(self, font):
         self.screen.fill((48, 58, 74)) #background
@@ -275,16 +355,16 @@ class Game:
         x_offset = WIDTH/4
         text = "Prepare"
         turn_text = ""
-        if self.p.ready or self.p2.ready:
-            text = "Ready: 1/2"
-        if self.players_ready():
+        if self.players_ready > 0:
+            text = f"Ready: {self.players_ready}/2"
+        if self.match_started:
             text = "Battle"
             turn_text = "Your Turn" if self.p.my_turn else "Wait"
 
             # display count of enemy ships only in battle
             width, height = draw_text(self.screen, font, "Enemy ships", [WIDTH-x_offset, 25], (255,255,255), alignment=Align.TOP_RIGHT)
-            enemy_ships_left = self.p2.ship_board.ship_amount - self.p2.ship_board.destroyed
-            enemy_ships_text = f"{self.p2.ship_board.ship_amount}/{enemy_ships_left}"
+            enemy_ships_left = self.p.attack_board.ship_amount - self.p.attack_board.destroyed
+            enemy_ships_text = f"{self.p.attack_board.ship_amount}/{enemy_ships_left}"
             draw_text(self.screen, font, enemy_ships_text, [WIDTH-x_offset-width/2, 25+height], (255,255,255), alignment=Align.TOP)
 
         # display count of your ships
@@ -301,13 +381,17 @@ class Game:
         turn_text_obj = font.render(turn_text, 0, (255,0,0) if self.p.my_turn else (255,255,255))
         self.screen.blit(turn_text_obj, (WIDTH/2-turn_text_size[0]/2, 25+text_size[1]))
 
-        reset_question = font.render("Reset?" if self.p2.request_reset else "", 0, (255,0,0))
-        self.screen.blit(reset_question, (0, 0))
+        reset_text = ""
+        if self.reset_requests > 0:
+            reset_text = f"Reset {self.reset_requests}/2 "
+            reset_text += " press [R]" if self.p.reset_request == False else ""
+        draw_text(self.screen, font, reset_text, [0, 0], (255, 0, 0), Align.TOP_LEFT)
 
-        if self.players_ready():
+
+        if self.match_started:
             if self.p.ship_board.ship_amount == self.p.ship_board.destroyed:
                 draw_text(self.screen, font, "YOU LOST", [WIDTH/2, HEIGHT/2], (255,0,0))
-            elif self.p2.ship_board.ship_amount == self.p2.ship_board.destroyed:
+            elif self.p.attack_board.ship_amount == self.p.attack_board.destroyed:
                 draw_text(self.screen, font, "YOU WON", [WIDTH/2, HEIGHT/2], (0,255,0))
 
         if self.n.connected == False:
@@ -317,25 +401,14 @@ class Game:
 
         pygame.display.flip()
 
-    def players_ready(self):
-        return (self.p.ready == True and self.p2.ready == True)
-
-    def toggle_ready(self):
-        if self.debug:
-            self.p.ready = not self.p.ready
-            self.p2.ready = not self.p2.ready
-            return
-        if self.players_ready(): return False
-        self.p.ready = not self.p.ready
 
     def main_menu(self):
         font_list = pygame.font.get_fonts()
         font = pygame.font.SysFont(font_list[0],size=32, bold=True)
 
-        ip_input = inputField(font_list[0],preview="Enter address : port", pos=[WIDTH/2, HEIGHT/2], width=250, font_size=24)
+        ip_input = inputField(font_list[0], value="127.0.0.1:5555",preview="Enter address : port", pos=[WIDTH/2, HEIGHT/2], width=250, font_size=24)
         join_button = Button(font_list[0], "Join", [WIDTH/2, HEIGHT/2+ip_input.height+10],font_size=24)
         host_button = Button(font_list[0], "Host", [WIDTH/2, join_button.pos[1]+join_button.height+10],font_size=24)
-        test_button = Button(font_list[0], "test", [WIDTH/2, host_button.pos[1]+host_button.height+10],font_size=24)
 
         while True:
             events = pygame.event.get()
@@ -347,12 +420,6 @@ class Game:
             ip_input.update(events)
             join_button.update(events)
             host_button.update(events)
-            test_button.update(events)
-
-            if test_button.pressed():
-                self.debug = True
-                self.p.my_turn = True
-                return True
 
             if ip_input.submitted() or join_button.pressed():
                 try:
@@ -360,12 +427,11 @@ class Game:
                     if len(user_input) == 2:
                         print(f"connecting to {user_input}")
                         self.n.set_address(user_input[0], int(user_input[1]))
-                        time.sleep(0.3)
-                        returned = self.n.connect()
-                        print(f"Returned {returned}")
-                        if returned:
-                            self.p = returned
-                            return True
+                        time.sleep(0.1)
+                        print("Joining")
+                        self.n.connect()
+                        time.sleep(0.1)
+                        return True
                 except Exception as e:
                     print(e)
 
@@ -374,26 +440,29 @@ class Game:
                 user_input = ip_input.value.split(":")
                 if len(user_input) == 2:
                     print("Hosting")
+                    self.server = GameServer()
                     self.server_thread = start_new_thread(self.server.start_server, (user_input[0], int(user_input[1])))
                     timeout = 0.0
-                    while not self.server.started:
-                        time.sleep(0.3)
-                        timeout += 1
+                    while not self.server.started or timeout < 2.0:
+                        time.sleep(1/FPS_LIMIT)
+                        timeout += 1/FPS_LIMIT
+
+                    if self.server.started:
+                        timeout = 0.0
                         print(f" server started {self.server.started}")
-                        if timeout >= 10:
-                            print("Failed to connect")
-                            break
-                    if timeout >= 10: continue
-                    host_button.text = "Joining..."
-                    host_button.auto_resize = True
-                    self.n.set_address(self.server.server_ip, self.server.server_port)
-                    returned = self.n.connect()
-                    print(f"Returned {returned}")
-                    if returned:
-                        self.p = returned
-                        return True
                     else:
-                        self.server.stop_server()
+                        print("Failed to start server")
+                        break
+                    while timeout < 0.5 and self.server.started:
+                        time.sleep(1/FPS_LIMIT)
+                        timeout += 1/FPS_LIMIT
+                        host_button.text = "Joining"
+                    self.n.set_address(self.server.server_ip, self.server.server_port)
+                    time.sleep(0.1)
+                    print("Joining")
+                    self.n.connect()
+                    time.sleep(0.1)
+                    return True
                 host_button.text = "Host"
 
             self.screen.fill((30,30,30))
@@ -402,28 +471,19 @@ class Game:
             ip_input.draw(self.screen)
             join_button.draw(self.screen)
             host_button.draw(self.screen)
-            test_button.draw(self.screen)
 
             pygame.display.flip()
-            self.clock.tick(60)
+            self.clock.tick(FPS_LIMIT)
 
     def main(self):
-        done = False
         font_list = pygame.font.get_fonts()
         font = pygame.font.SysFont(font_list[0],size=32, bold=True)
+        self.reply_thread = start_new_thread(self.manage_replies, ())
 
-        while not done:
-            if self.n.connected:
-                server_data = self.n.send(self.p)
-                if not server_data: continue
-                self.p = server_data["p1"]
-                self.p2 = server_data["p2"]
-                self.p.ship_board = Board.merge(self.p2.attack_board, self.p.ship_board)
-                self.p.attack_board = Board.merge(self.p.attack_board, self.p2.ship_board)
-
+        while not self.done:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
-                    done = True
+                    self.done = True
                     self.running = False
                 if event.type == pygame.KEYUP:
                     if event.key == pygame.K_ESCAPE:
@@ -431,34 +491,34 @@ class Game:
                         self.restart()
                         return
                     if event.key == pygame.K_SPACE:
-                        self.toggle_ready()
+                        self.n.send(Action.READY)
+
                     if event.key == pygame.K_r:
-                        self.p.request_reset = not self.p.request_reset
+                        self.n.send(Action.RESET)
+
                 if event.type == pygame.MOUSEBUTTONDOWN:
                     mouse_x, mouse_y = pygame.mouse.get_pos()
-                    if self.players_ready():
-                        target_board = SHIP_BOARD if self.debug else ATTACK_BOARD
-                        attack_board_x, attack_board_y = Board.to_grid(mouse_x-target_board[0], mouse_y-target_board[1])
+                    if self.match_started:
+                        attack_board_x, attack_board_y = Board.to_grid(mouse_x-ATTACK_BOARD[0], mouse_y-ATTACK_BOARD[1])
                         if event.button == 1 and self.p.my_turn:
-                            result = self.p.take_a_shot(attack_board_x, attack_board_y, self.debug)
-                            self.p.finished_turn = result
+                            self.n.send(Action.ATTACK, [attack_board_x, attack_board_y])
 
             mouse_buttons = pygame.mouse.get_pressed()
             mouse_pos = pygame.mouse.get_pos()
             ship_board_x, ship_board_y = Board.to_grid(mouse_pos[0]-SHIP_BOARD[0], mouse_pos[1]-SHIP_BOARD[1])
-            if mouse_buttons[0] and not self.players_ready():
-                self.p.place_ship(ship_board_x, ship_board_y)
-            if mouse_buttons[2] and not self.players_ready():
-                self.p.remove_ship(ship_board_x, ship_board_y)
+            if mouse_buttons[0] and not self.match_started:
+                self.n.send(Action.PLACE,[ship_board_x, ship_board_y])
+            if mouse_buttons[2] and not self.match_started:
+                self.n.send(Action.REMOVE,[ship_board_x, ship_board_y])
 
             self.redraw_screen(font)
-            self.clock.tick(60)
+            self.clock.tick(FPS_LIMIT)
 
 if __name__ == "__main__":
     game = Game()
     while game.running:
-        if game.server.started:
-            game.server.stop_server()
         if game.main_menu():
             game.main()
+        if game.server.started:
+            game.server.stop_server()
     pygame.quit()
