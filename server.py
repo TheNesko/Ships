@@ -59,7 +59,7 @@ class GameServer:
         reply = ""
         while not self.shutdown_request:
             try:
-                raw = client.recv(2048)
+                raw = client.recv(4096)
 
                 if not raw:
                     print(f"{self.names[client]} disconnected")

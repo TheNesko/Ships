@@ -4,6 +4,7 @@ import pickle
 class Network:
     def __init__(self) -> None:
         self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.client.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.server = "10.59.61.151"
         self.port = 5555
         self.address = (self.server, self.port)
@@ -24,7 +25,7 @@ class Network:
         try:
             print(f"Attempting connection to {self.address}")
             self.client.connect(self.address)
-            returned = pickle.loads(self.client.recv(2048))
+            returned = pickle.loads(self.client.recv(4096))
             if returned == None: return None
             # self.client.settimeout(None)
             self.connected = True
@@ -35,7 +36,7 @@ class Network:
     def send(self, data):
         try:
             self.client.send(pickle.dumps(data))
-            raw = self.client.recv(2048)
+            raw = self.client.recv(4096)
 
             if not raw:
                 print("Disconected from server")

@@ -1,6 +1,7 @@
 name: Build Windows Client
 
 on:
+  push:
   workflow_dispatch:
 
 jobs:

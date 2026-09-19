@@ -434,7 +434,7 @@ class Game:
                         self.toggle_ready()
                     if event.key == pygame.K_r:
                         self.p.request_reset = not self.p.request_reset
-                if event.type == pygame.MOUSEBUTTONUP:
+                if event.type == pygame.MOUSEBUTTONDOWN:
                     mouse_x, mouse_y = pygame.mouse.get_pos()
                     if self.players_ready():
                         target_board = SHIP_BOARD if self.debug else ATTACK_BOARD
@@ -442,12 +442,14 @@ class Game:
                         if event.button == 1 and self.p.my_turn:
                             result = self.p.take_a_shot(attack_board_x, attack_board_y, self.debug)
                             self.p.finished_turn = result
-                    else:
-                        ship_board_x, ship_board_y = Board.to_grid(mouse_x-SHIP_BOARD[0], mouse_y-SHIP_BOARD[1])
-                        if event.button == 1:
-                            self.p.place_ship(ship_board_x, ship_board_y)
-                        if event.button == 3:
-                            self.p.remove_ship(ship_board_x, ship_board_y)
+
+            mouse_buttons = pygame.mouse.get_pressed()
+            mouse_pos = pygame.mouse.get_pos()
+            ship_board_x, ship_board_y = Board.to_grid(mouse_pos[0]-SHIP_BOARD[0], mouse_pos[1]-SHIP_BOARD[1])
+            if mouse_buttons[0] and not self.players_ready():
+                self.p.place_ship(ship_board_x, ship_board_y)
+            if mouse_buttons[2] and not self.players_ready():
+                self.p.remove_ship(ship_board_x, ship_board_y)
 
             self.redraw_screen(font)
             self.clock.tick(60)
