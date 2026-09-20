@@ -1,3 +1,5 @@
+from random import randint
+
 import pygame
 from network import Network
 from player import *
@@ -251,8 +253,177 @@ class Button:
             self.width = size[0] + margin
             self.height = size[1] + margin
 
+class Particle:
+
+    CIRCLE = 0
+
+    def __init__(self, lifetime = 0.0, x = 0, y = 0, color = (255,255,255)) -> None:
+        self.x = x
+        self.y = y
+        self.lifetime = lifetime
+        self.color = color
+        self.gravity_x :float = 0.0
+        self.gravity_y :float = 0.0
+        self.velocity_x :float = 0.0
+        self.velocity_y :float = 0.0
+
+        self._time_passed :float = 0.0
+
+    def update(self, dt:float):
+        self._time_passed += dt
+        self.velocity_x += self.gravity_x * dt
+        self.velocity_y += self.gravity_y * dt
+        self.x += self.velocity_x * dt
+        self.y += self.velocity_y * dt
+
+    def draw(self, screen):
+        pygame.draw.circle(screen, self.color, (self.x, self.y), 10)
+
+class ParticleEmitter:
+    def __init__(self, x, y, lifetime, amount:int, emitting:bool = True, one_shot:bool = False, color = (255,255,255),
+                init_velocity = [[-50, 50],[-50, 50]], gravity = [0.0, 98.0], explosivness:float = 0.0,
+                lifetime_randomness:float = 1.0) -> None:
+        self.x = x
+        self.y = y
+        self.lifetime = lifetime
+        self.amount = amount
+        self.emitting = emitting
+        self.one_shot = one_shot
+        self.color = color
+        self.initial_velocity = init_velocity
+        self.gravity = gravity
+        self.explosivness = explosivness
+        self.lifetime_randomness = lifetime_randomness
+
+
+        self._time_passed : float = 0.0
+        self.particles : list[Particle] = []
+        self.emitted : int = 0
+
+    def update(self, dt:float):
+        # first update existing particles
+        for particle in self.particles:
+            particle.update(dt)
+            if particle._time_passed >= particle.lifetime:
+                self.particles.remove(particle)
+
+        # if not emitting then skip rest
+        if not self.emitting: return
+
+        self._time_passed += dt
+        if (self._time_passed/self.get_spawn_interval()) > self.emitted:
+            if self.explosivness:
+                for _ in range(int(self.amount * self.explosivness)):
+                    self.spawn_particle()
+            else:
+                self.spawn_particle()
+
+        if self.one_shot and self.emitted >= self.amount:
+            self.emitting = False
+            self.emitted = 0
+
+    def draw(self, screen):
+        for particle in self.particles:
+            particle.draw(screen)
+
+    def start_emitting(self, x = None, y = None):
+        if x: self.x = x
+        if y: self.y = y
+        self.emitting = True
+
+    def spawn_particle(self):
+        lifetime = self._get_lifetime()
+        new_particle = Particle(lifetime, self.x, self.y)
+        if type(self.color) is list:
+            channels = []
+            for channel in self.color:
+                channels.append(randint(channel[0], channel[1]))
+
+            new_particle.color = (channels[0], channels[1], channels[2])
+        else:
+            new_particle.color = self.color
+        velocity_x = self.initial_velocity[0]
+        velocity_y = self.initial_velocity[1]
+        if type(velocity_x) is list:
+            new_particle.velocity_x = randint(velocity_x[0], velocity_x[1])
+        elif type(velocity_x) is float:
+            new_particle.velocity_x = velocity_x
+        if type(velocity_y) is list:
+            new_particle.velocity_y = randint(velocity_y[0], velocity_y[1])
+        elif type(velocity_y) is float:
+            new_particle.velocity_y = velocity_y
+        new_particle.gravity_x = self.gravity[0]
+        new_particle.gravity_y = self.gravity[1]
+        self.particles.append(new_particle)
+        self.emitted += 1
+
+    def get_emit_speed(self):
+        return self.amount/self.lifetime
+
+    def get_spawn_interval(self):
+        return 1.0/self.get_emit_speed()
+
+    def _get_lifetime(self):
+        lifetime = self.lifetime
+        rand_scale = 100
+        lifetime_a = lifetime*rand_scale
+        lifetime_b = (lifetime*self.lifetime_randomness)*rand_scale
+        lifetime = randint(int(lifetime_a), int(lifetime_b))
+        return lifetime/rand_scale
+
+class Bomb:
+    def __init__(self, board:Board, board_pos, x, y, emitter:ParticleEmitter) -> None:
+        world_x, world_y = Board.to_world(x, y)
+        world_x += Board.CELL_SIZE/2 + board_pos[0]
+        world_y += Board.CELL_SIZE/2 + board_pos[1]
+        self.attack_x = x
+        self.attack_y = y
+        self.x = world_x
+        self.y = -100
+        self.target_y = world_y
+        self.emitter = emitter
+        self.board = board
+        self.finished = False
+
+        self.start_dist = world_y - self.y
+
+        self.velocity_y = self.start_dist
+        self.gravity_y = 5000.0
+
+    def update(self, dt:float):
+        if self.finished: return
+
+        self.velocity_y += self.gravity_y * dt
+        self.y += self.velocity_y * dt
+        self.y = min(self.target_y, self.y)
+
+        if self.target_y - self.y <= 0:
+            self.emitter.start_emitting(self.x, self.y)
+            self.board.attack(self.attack_x, self.attack_y)
+            self.finished = True
+            return
+
+    def draw(self, screen):
+        curr_dist = self.target_y - self.y
+        size = 30
+        size +=  (size * 2)  / (self.start_dist/curr_dist)
+        pygame.draw.polygon(
+            screen,
+            (0,255,0),
+            [
+                (self.x-size/2, self.y-size),
+                (self.x+size/2, self.y-size),
+                (self.x, self.y)
+            ]
+        )
+
+
+
 class Game:
     def __init__(self) -> None:
+        pygame.init()
+        self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
+        self.clock = pygame.time.Clock()
         self.server = GameServer()
         self.server_thread = None
         self.n = Network()
@@ -261,17 +432,26 @@ class Game:
         self.players_ready = 0
         self.reset_requests = 0
         self.match_started = False
-        pygame.init()
-        self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
-        self.clock = pygame.time.Clock()
         self.running = True
         self.done = False
+        self.dt = 0.01
+
+        self.fail_shot_emitter = ParticleEmitter(0, 0, 0.3, 24, color=[[0,20],[0,30],[200,255]], explosivness=1.0,
+            init_velocity=[[-100, 100],[-100, -20]], lifetime_randomness=3.0, one_shot=True, gravity=[0.0, 150.0], emitting=False)
+        self.correct_shot_emitter = ParticleEmitter(0, 0, 0.3, 24, color=[[196,255],[28,80],[20,20]], explosivness=1.0,
+            init_velocity=[[-200, 200],[-200, 200]], lifetime_randomness=1.5, one_shot=True, gravity=[0.0, 0.0], emitting=False)
+        self.emitters = [self.fail_shot_emitter, self.correct_shot_emitter]
+
+        self.bombs :list[Bomb] = []
 
     def restart(self):
         self.p = Player()
         self.players_ready = 0
         self.reset_requests = 0
         self.match_started = False
+
+    def spawn_bomb(self, board, board_pos, x, y, emitter):
+        self.bombs.append(Bomb(board, board_pos, x, y, emitter))
 
     def manage_replies(self):
         while not self.done:
@@ -297,11 +477,14 @@ class Game:
                         result = reply["result"]
                         x = reply["x"]
                         y = reply["y"]
+                        emitter = self.correct_shot_emitter if result else self.fail_shot_emitter
                         if self.n.id == id:
-                            self.p.attack_board.attack(x,y)
+                            # self.p.attack_board.attack(x,y)
+                            self.spawn_bomb(self.p.attack_board, ATTACK_BOARD, x, y, emitter)
                         else:
-                            self.p.ship_board.attack(x,y)
-                            print(f"Other player attacked your {x}{y}")
+                            # self.p.ship_board.attack(x,y)
+                            self.spawn_bomb(self.p.ship_board, SHIP_BOARD, x, y, emitter)
+                            print(f"Other player attacked your ship at {x} {y}")
                     case Action.PLACE:
                         result = reply["result"]
                         x = reply["x"]
@@ -381,6 +564,11 @@ class Game:
         turn_text_obj = font.render(turn_text, 0, (255,0,0) if self.p.my_turn else (255,255,255))
         self.screen.blit(turn_text_obj, (WIDTH/2-turn_text_size[0]/2, 25+text_size[1]))
 
+        for bomb in self.bombs:
+            bomb.draw(self.screen)
+        for emitter in self.emitters:
+            emitter.draw(self.screen)
+
         reset_text = ""
         if self.reset_requests > 0:
             reset_text = f"Reset {self.reset_requests}/2 "
@@ -400,7 +588,6 @@ class Game:
             draw_text(self.screen, new_font, "Not connected", [0, 0], (255,0,0), Align.TOP_LEFT)
 
         pygame.display.flip()
-
 
     def main_menu(self):
         font_list = pygame.font.get_fonts()
@@ -473,7 +660,7 @@ class Game:
             host_button.draw(self.screen)
 
             pygame.display.flip()
-            self.clock.tick(FPS_LIMIT)
+            self.dt = self.clock.tick(FPS_LIMIT) / 1000
 
     def main(self):
         font_list = pygame.font.get_fonts()
@@ -511,8 +698,16 @@ class Game:
             if mouse_buttons[2] and not self.match_started:
                 self.n.send(Action.REMOVE,[ship_board_x, ship_board_y])
 
+            for bomb in self.bombs:
+                bomb.update(self.dt)
+                if bomb.finished:
+                    self.bombs.remove(bomb)
+            for emitter in self.emitters:
+                emitter.update(self.dt)
+
+
             self.redraw_screen(font)
-            self.clock.tick(FPS_LIMIT)
+            self.dt = self.clock.tick(FPS_LIMIT) / 1000
 
 if __name__ == "__main__":
     game = Game()

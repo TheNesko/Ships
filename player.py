@@ -34,8 +34,12 @@ class Board:
         self.destroyed = 0
 
     @staticmethod
-    def to_grid(x,y):
+    def to_grid(x, y):
         return x//Board.CELL_SIZE, y//Board.CELL_SIZE
+
+    @staticmethod
+    def to_world(x, y):
+        return x*Board.CELL_SIZE, y*Board.CELL_SIZE
 
     @staticmethod
     def merge(attack_board, ship_board):

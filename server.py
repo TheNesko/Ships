@@ -150,7 +150,7 @@ class GameServer:
                     case Action.ATTACK:
                         x = data["x"]
                         y = data["y"]
-                        result = self.players[0 if player == 1 else 1].ship_board.attack(x, y)
+                        result = self.players[0 if player_id == 1 else 1].ship_board.attack(x, y)
                         reply["result"] = result
                         if result == None: continue
                         reply["x"] = x
